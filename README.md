@@ -118,6 +118,3 @@ ninja
 
 The author contributes to [IREE](https://github.com/iree-org/iree), with in-progress work on convolution vectorization heuristics in the LLVMCPU backend. This project demonstrates dialect design + frontend lowering, complementing that codegen-heuristics work upstream.
 
----
-
-*For full design rationale, trend analysis, bufferization design notes, and v2 roadmap, see `docs/PLANNING.md`.*
