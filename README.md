@@ -1,10 +1,10 @@
 # MX-Quantization Dialect
 
-An out-of-tree MLIR (Multi-Level Intermediate Representation) dialect for Microscaling (MX) and sub-INT8 (8-bit integer) quantization formats. Built against current upstream LLVM/MLIR. Lowers to `linalg` + `arith` and executes via `mlir-cpu-runner` with reproducible benchmarks. This repo complements my ongoing upstream IREE contributions by demonstrating ownership of a full dialect and lowering stack.
+An out-of-tree MLIR (Multi-Level Intermediate Representation) dialect for Microscaling (MX) and sub-INT8 (sub-8-bit integer) quantization formats. Built against current upstream LLVM/MLIR. Lowers to `linalg` + `arith` and executes via `mlir-cpu-runner` with reproducible benchmarks. It implements a full dialect and lowering stack — the design/frontend half of the compiler.
 
-## What this project demonstrates
+## What's covered
 
-End-to-end ownership of an MLIR compiler component:
+End to end, the project includes:
 
 - Modern C++ + TableGen (ODS — Operation Definition Specification)
 - Dialect design: op set, parameterized types, verification, op interfaces
@@ -16,20 +16,18 @@ End-to-end ownership of an MLIR compiler component:
 
 ## Why MX-quantization
 
-Upstream MLIR's `quant` dialect defines quantized types and utility ops — intentionally thin. A lot of modern compiler work in 2026 happens at:
+Upstream MLIR's `quant` dialect defines quantized types and utility ops — intentionally thin. Much of the active low-bit compiler work in 2026 sits above it:
 
-- **MX formats** — OCP (Open Compute Project) Spec, used by NVIDIA Blackwell and AMD MI3xx
+- **MX formats** — OCP (Open Compute Project) spec, used by NVIDIA Blackwell and AMD MI3xx
 - **Sub-INT8 weight quantization** — INT4/INT2 schemes (GPTQ, AWQ)
-- **FP8 (8-bit floating point)** — standard on H100/B200/MI300; widely used in accelerators but with thin IR (Intermediate Representation) support
+- **FP8 (8-bit floating point)** — standard on H100/B200/MI300; heavily used in hardware but thinly supported at the IR (Intermediate Representation) level
 - **KV (Key-Value) cache quantization** — central to long-context LLM (Large Language Model) serving
 
-This surface is thinly covered upstream and broadly relevant to accelerator companies. The work complements existing IREE backend contributions by covering the dialect-design / frontend half of the stack.
+This surface is thinly covered upstream and broadly relevant across the industry:
 
-## Industry alignment
-
-- **Cloud LLM serving** — agentic long-context workloads make low-bit KV cache quantization critical
-- **Edge / Physical AI** — VLA (Vision-Language-Action) models need aggressive sub-INT8 to fit on robotic SoCs (Systems-on-Chip)
-- **Accelerator hardware** — MX formats are designed for the precision/efficiency trade-off modern silicon demands
+- **Cloud LLM serving** — agentic long-context workloads make low-bit KV-cache quantization critical
+- **Edge / physical AI** — VLA (Vision-Language-Action) models need aggressive sub-INT8 to fit on robotic SoCs (Systems-on-Chip)
+- **Accelerator hardware** — MX formats target the precision/efficiency trade-off these chips are built around
 
 ## v1 scope (4 ops)
 
@@ -46,26 +44,11 @@ This surface is thinly covered upstream and broadly relevant to accelerator comp
 
 **Bufferization strategy:** value-semantic `!mx.tensor` decomposes into two memrefs (mantissa + scale) at the bufferization boundary. Full rationale in `docs/PLANNING.md`.
 
-**Benchmark plan:** the goal is to demonstrate the memory-centric thesis (quantization attacks data movement, not arithmetic), so the benchmark measures throughput vs FP32 baseline *and* bytes moved, memory footprint reduction, and the operational-intensity shift on the roofline. Target deliverable: a roofline plot showing the workload moving from memory-bound toward compute-bound.
+**Benchmark plan:** the benchmark targets the memory-centric thesis (quantization attacks data movement, not arithmetic), so it measures throughput vs FP32 baseline *and* bytes moved, memory footprint reduction, and the operational-intensity shift on the roofline. Target deliverable: a roofline plot showing the workload moving from memory-bound toward compute-bound.
 
-## Dialect design as multi-axis decision-making
+## Design rationale
 
-A dialect is not "a list of ops" — it's co-designed decisions across twelve axes. Each choice is interview-defensible:
-
-| Axis | Question |
-|---|---|
-| Abstraction level | Where in the lowering tower — semantic, structured, or hardware-near? |
-| Op set | What primitives? Granularity trade-off (coarse = inflexible; fine = bloated) |
-| Type system | What types? Parameterized by what? Value or memory semantics? |
-| Op interfaces | `LoopLikeOpInterface`? `MemoryEffectOpInterface`? `ViewLikeOpInterface`? |
-| Region structure | Do ops carry regions, block args, yields? |
-| Verification | What invariants must hold for well-formedness? |
-| Canonical form | What's preferred? Which rewrites converge toward it? |
-| Folding | What identities, constants, algebraic simplifications fire? |
-| Lowering | To what dialect(s), through what intermediate steps? |
-| Composability | Can `arith`/`tensor`/`memref` mix with these ops/types? |
-| Side effects | Pure, side-effecting, or both (triggers bufferization decisions)? |
-| Naming | Op prefix, dialect namespace, conventions |
+A dialect is a set of co-designed decisions, not just a list of ops — abstraction level, op-set granularity, type parameterization, bufferization, lowering target, canonicalization, and more. Each was a deliberate trade-off; the full reasoning across every axis is in `docs/PLANNING.md`.
 
 ## Transform dialect scheduling (planned, Week 5)
 
@@ -82,24 +65,24 @@ module attributes {transform.with_named_sequence} {
 }
 ```
 
-The schedule is data, not compiled code — autotunable and RL-learnable. Demonstrates fluency with the modern MLIR scheduling story used by IREE codegen and upstream auto-scheduling research. The K (reduction) tile is block-aligned (= block size, 32) so the block-scale index becomes loop-invariant and vectorizes to a load + broadcast; see `docs/PLANNING.md` for the rationale.
+The schedule is data, not compiled code, which makes it autotunable — the same Transform-dialect approach IREE codegen uses. The K (reduction) tile is block-aligned (= block size, 32) so the block-scale index becomes loop-invariant and vectorizes to a load + broadcast; see `docs/PLANNING.md` for the rationale.
 
 ## Build and run
 
 ```bash
 # Prerequisites: LLVM/MLIR built locally (see docs/PLANNING.md § Development setup)
-cd ~/dev/my-dialect
+cd ~/dev/mlir-mx
 mkdir build && cd build
 cmake -G Ninja .. \
   -DMLIR_DIR=$HOME/dev/llvm-build/lib/cmake/mlir \
   -DLLVM_DIR=$HOME/dev/llvm-build/lib/cmake/llvm
 ninja
-./bin/my-opt --help
+./bin/mx-opt --help
 ```
 
 ## Timeline
 
-- **Week 1** — Project skeleton; `my-opt` round-trips a stub op
+- **Week 1** — Project skeleton; `mx-opt` round-trips a stub op
 - **Week 2** — All 4 ops + parameterized type; parse, print, verify
 - **Week 3** — `mx.fold_scale` plus two more canonicalizations
 - **Week 4** — Dialect conversion to `linalg` + bufferization handling
@@ -116,5 +99,4 @@ ninja
 
 ## Related work
 
-The author contributes to [IREE](https://github.com/iree-org/iree), with in-progress work on convolution vectorization heuristics in the LLVMCPU backend. This project demonstrates dialect design + frontend lowering, complementing that codegen-heuristics work upstream.
-
+I also contribute to IREE — in-progress work on convolution vectorization heuristics in the LLVMCPU backend. That work is on the backend/codegen side; this project covers the dialect-design and frontend-lowering side.
