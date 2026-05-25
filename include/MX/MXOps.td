@@ -66,4 +66,21 @@ def MX_DeQuantizeBlockOp : MX_Op<"dequantize_block", [Pure]> {
   let hasVerifier = 1;
 }
 
+def MX_BlockMatmulOp : MX_Op<"block_matmul", [Pure]> {
+    let summary = "Perform block matrix multiplication on MX tensor and float32 tensor to generate float32 output";
+    let description = [{ ... longer prose, optional ... }];
+
+    let arguments = (ins
+        MX_TensorType:$lhs,
+        StaticShapeTensorOf<[F32]>:$rhs,
+        StaticShapeTensorOf<[F32]>:$acc
+    );
+    let results = (outs StaticShapeTensorOf<[F32]>:$result);
+
+  let assemblyFormat = [{
+    $lhs `,` $rhs `,` $acc attr-dict `:` type($lhs) `,` type($rhs) `,` type($acc) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
 #endif // MX_OPS
