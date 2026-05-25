@@ -13,8 +13,7 @@ include "MX/MXTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
-def MX_FooOp : MX_Op<"foo", [Pure,
-                                             SameOperandsAndResultType]> {
+def MX_FooOp : MX_Op<"foo", [Pure, SameOperandsAndResultType]> {
     let summary = "Illustrates how to define an operation.";
     let description = [{
         The `mx.foo` operation illustrates how to define a new
@@ -38,6 +37,33 @@ def MX_FooOp : MX_Op<"foo", [Pure,
     let assemblyFormat = [{
         $input attr-dict `:` type($input)
     }];
+}
+
+def MX_QuantizeBlockOp : MX_Op<"quantize_block", [Pure]> {
+    let summary = "Quantize an FP32 tensor into block-scaled MX form";
+    let description = [{ ... longer prose, optional ... }];
+
+
+    let arguments = (ins StaticShapeTensorOf<[F32]>:$input);
+    let results   = (outs MX_TensorType:$result);
+
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+def MX_DeQuantizeBlockOp : MX_Op<"dequantize_block", [Pure]> {
+    let summary = "Dequantize a block-scaled MX tensor into an FP32 tensor";
+    let description = [{ ... longer prose, optional ... }];
+
+
+    let arguments   = (ins MX_TensorType:$input);
+    let results = (outs StaticShapeTensorOf<[F32]>:$result);
+    let assemblyFormat = [{
+        $input attr-dict `:` type($input) `->` type($result)
+    }];
+  let hasVerifier = 1;
 }
 
 #endif // MX_OPS

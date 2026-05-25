@@ -42,6 +42,7 @@ public:
     if (failed(applyPatternsGreedily(getOperation(), patternSet)))
       signalPassFailure();
   }
+
 };
 } // namespace
 } // namespace mlir::mx

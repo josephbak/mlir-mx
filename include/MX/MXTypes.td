@@ -48,6 +48,7 @@ def MX_TensorType : MX_Type<"MxTensor", "tensor"> {
   );
 
   let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
 
   let extraClassDeclaration = [{
     // Returns the number of scale blocks along the last axis.

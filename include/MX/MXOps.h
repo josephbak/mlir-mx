@@ -16,6 +16,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #define GET_OP_CLASSES
+#include "MX/MXTypes.h"
 #include "MX/MXOps.h.inc"
 
 #endif // MX_MXOPS_H

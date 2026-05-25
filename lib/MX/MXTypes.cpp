@@ -13,6 +13,7 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+using namespace mlir;
 using namespace mlir::mx;
 
 #define GET_TYPEDEF_CLASSES
@@ -47,8 +48,14 @@ using namespace mlir::mx;
   if (parser.parseGreater())
     return {};
 
-  return MxTensorType::get(parser.getContext(), shape, elemType,
-                           blockSize, scaleType);
+  // BEFORE — asserts on bad input
+  // return MxTensorType::get(parser.getContext(), shape, elemType,
+                          // blockSize, scaleType);
+
+  // AFTER — returns null on bad input, parser handles it gracefully
+  return MxTensorType::getChecked(
+    parser.getEncodedSourceLoc(parser.getCurrentLocation()),
+    parser.getContext(), shape, elemType, blockSize, scaleType);
 }
 
 void MxTensorType::print(::mlir::AsmPrinter &printer) const {
@@ -66,4 +73,25 @@ void MXDialect::registerTypes() {
 #define GET_TYPEDEF_LIST
 #include "MX/MXOpsTypes.cpp.inc"
       >();
+}
+
+LogicalResult MxTensorType::verify(
+    function_ref<InFlightDiagnostic()> emitError,
+    ArrayRef<int64_t> shape,
+    Type elementType,
+    int64_t blockSize,
+    Type scaleType) {
+      if (shape.empty())
+        return emitError() << "shape must have at least one dimension";
+      if (blockSize <= 0)
+        return emitError() << "block_size must be positive, got " << blockSize;
+      if (shape.back() % blockSize != 0)
+        return emitError() << "last dimension (" << shape.back()
+                          << ") must be divisible by block_size (" << blockSize << ")";
+      if (!llvm::isa<FloatType>(elementType))
+        return emitError() << "elementType must be a float type, got " << elementType;
+      if (!llvm::isa<FloatType>(scaleType))
+        return emitError() << "scaleType must be a float type, got " << scaleType;
+
+      return success();
 }
