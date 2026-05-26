@@ -70,5 +70,13 @@ LogicalResult BlockMatmulOp::verify() {
     return success();
 }
 
+LogicalResult FoldScaleOp::verify() {
+  if (getInput().getType() != getResult().getType()) {
+    return emitOpError("input and output types must be the same.");
+  }
+
+  return success();
+}
+
 #define GET_OP_CLASSES
 #include "MX/MXOps.cpp.inc"

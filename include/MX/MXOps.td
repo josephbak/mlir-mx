@@ -83,4 +83,20 @@ def MX_BlockMatmulOp : MX_Op<"block_matmul", [Pure]> {
   let hasVerifier = 1;
 }
 
+def MX_FoldScaleOp : MX_Op<"fold_scale", [Pure]> {
+    let summary = "Fold scale into a block-scaled MX tensor";
+    let description = [{ ... longer prose, optional ... }];
+
+    let arguments = (ins
+        MX_TensorType:$input,
+        F32:$alpha
+    );
+    let results = (outs MX_TensorType:$result);
+
+    let assemblyFormat = [{
+        $input `,` $alpha attr-dict `:` type($input) `,` type($alpha) `->` type($result)
+    }];
+    let hasVerifier = 1;
+}
+
 #endif // MX_OPS
