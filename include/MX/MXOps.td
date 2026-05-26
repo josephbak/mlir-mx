@@ -96,7 +96,9 @@ def MX_FoldScaleOp : MX_Op<"fold_scale", [Pure]> {
     let assemblyFormat = [{
         $input `,` $alpha attr-dict `:` type($input) `,` type($alpha) `->` type($result)
     }];
+
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 #endif // MX_OPS

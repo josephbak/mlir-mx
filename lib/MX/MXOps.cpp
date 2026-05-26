@@ -6,6 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/IR/Matchers.h"            // matchPattern, m_ConstantFloat
+#include "mlir/IR/PatternMatch.h"        // OpRewritePattern, PatternRewriter
+#include "mlir/Dialect/Arith/IR/Arith.h" // arith::ConstantOp
+
 #include "MX/MXOps.h"
 #include "MX/MXDialect.h"
 #include "MX/MXTypes.h"
@@ -76,6 +80,52 @@ LogicalResult FoldScaleOp::verify() {
   }
 
   return success();
+}
+
+// (1) The pattern: this is where Steps 1–2 + the rewrite live
+struct FoldScalePow2 : public OpRewritePattern<FoldScaleOp> {
+  using OpRewritePattern<FoldScaleOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(FoldScaleOp op, PatternRewriter &rewriter) const override {
+    auto innerOp = op.getInput().getDefiningOp<FoldScaleOp>();
+
+    // Step 1: constant?      m_ConstantFloat -> else return failure();
+    // Step 2: power of two?  getExactLog2    -> else return failure();
+    // rewrite: e += a, replace op
+
+    // Step 1: Is our input produced by another fold_scale?
+    if (!innerOp)
+      return failure();  // input came from something else — pattern doesn't apply 
+    
+    // Step 2: Are both alphas compile-time constants?
+    APFloat alpha1(0.0f), alpha2(0.0f);
+    if (!matchPattern(innerOp.getAlpha(), m_ConstantFloat(&alpha1)))
+      return failure();  // inner α is runtime — can't fold
+    if (!matchPattern(op.getAlpha(), m_ConstantFloat(&alpha2)))
+      return failure();  // outer α is runtime — can't fold 
+
+    // Step 3: Compute product α1 · α2
+    APFloat product = alpha1;
+    product.multiply(alpha2, APFloat::rmNearestTiesToEven); 
+
+   // Step 4: Build new constant and replace outer op
+    Value newAlpha = arith::ConstantOp::create(rewriter, op.getLoc(),
+      rewriter.getFloatAttr(rewriter.getF32Type(), product));
+
+    rewriter.replaceOpWithNewOp<FoldScaleOp>(
+        op,                    // the op being replaced (outer fold_scale)
+        op.getType(),          // result type: same !mx.tensor type
+        innerOp.getInput(),    // %t — the original input, skipping the inner fold_scale
+        newAlpha               // the combined α1·α2
+    ); 
+
+    return success();
+  }
+};
+
+// (2) The generated hook's body: just register the pattern(s)
+void FoldScaleOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                              MLIRContext *context) {
+  results.add<FoldScalePow2>(context);
 }
 
 #define GET_OP_CLASSES
