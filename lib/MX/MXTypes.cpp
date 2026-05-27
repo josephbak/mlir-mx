@@ -76,7 +76,7 @@ void MXDialect::registerTypes() {
 }
 
 LogicalResult MxTensorType::verify(
-    function_ref<InFlightDiagnostic()> emitError,
+    function_ref<InFlightDiagnostic()> emitError, 
     ArrayRef<int64_t> shape,
     Type elementType,
     int64_t blockSize,

@@ -9,6 +9,7 @@
 #include "mlir/IR/Matchers.h"            // matchPattern, m_ConstantFloat
 #include "mlir/IR/PatternMatch.h"        // OpRewritePattern, PatternRewriter
 #include "mlir/Dialect/Arith/IR/Arith.h" // arith::ConstantOp
+#include "mlir/Dialect/Tensor/IR/Tensor.h" // tensor::SplatOp
 
 #include "MX/MXOps.h"
 #include "MX/MXDialect.h"
@@ -122,10 +123,63 @@ struct FoldScalePow2 : public OpRewritePattern<FoldScaleOp> {
   }
 };
 
+struct FoldScaleIdentity : public OpRewritePattern<FoldScaleOp> {
+  using OpRewritePattern<FoldScaleOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FoldScaleOp op,
+                                PatternRewriter &rewriter) const override {
+    // Is α a compile-time constant?
+    APFloat alpha(0.0f);
+    if (!matchPattern(op.getAlpha(), m_ConstantFloat(&alpha)))
+      return failure();
+
+    // Is it exactly 1.0?
+    if (!alpha.isExactlyValue(1.0))
+      return failure();
+
+    // Replace with the input directly — no new op needed
+    rewriter.replaceOp(op, op.getInput());
+    return success();
+  }
+};
+
 // (2) The generated hook's body: just register the pattern(s)
 void FoldScaleOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                               MLIRContext *context) {
   results.add<FoldScalePow2>(context);
+  results.add<FoldScaleIdentity>(context); 
+}
+
+struct DequantizeFoldScaleFusion : public OpRewritePattern<DeQuantizeBlockOp> {
+  using OpRewritePattern<DeQuantizeBlockOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(DeQuantizeBlockOp op,
+                                PatternRewriter &rewriter) const override {
+    // Is our input a fold_scale?
+    auto foldOp = op.getInput().getDefiningOp<FoldScaleOp>();
+    if (!foldOp)
+      return failure();
+
+    // Dequantize the original tensor (before fold_scale)
+    Value newDeq = DeQuantizeBlockOp::create(rewriter, op.getLoc(),
+        op.getType(), foldOp.getInput());
+
+    // Splat alpha to match tensor shape
+    Value alphaSplat = tensor::SplatOp::create(rewriter, op.getLoc(),
+        foldOp.getAlpha(), op.getType());
+
+    // Element-wise multiply in f32
+    Value result = arith::MulFOp::create(rewriter, op.getLoc(),
+        newDeq, alphaSplat);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+void DeQuantizeBlockOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                                     MLIRContext *context) {
+  results.add<DequantizeFoldScaleFusion>(context);
 }
 
 #define GET_OP_CLASSES

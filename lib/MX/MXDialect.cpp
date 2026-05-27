@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+
 #include "MX/MXDialect.h"
 #include "MX/MXOps.h"
 #include "MX/MXTypes.h"

@@ -26,6 +26,10 @@ def MX_Dialect : Dialect {
     let cppNamespace = "::mlir::mx";
 
     let useDefaultTypePrinterParser = 1;
+    let dependentDialects = [
+        "::mlir::tensor::TensorDialect",
+        "::mlir::arith::ArithDialect"
+    ];
     let extraClassDeclaration = [{
         void registerTypes();
     }];

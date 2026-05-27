@@ -64,6 +64,7 @@ def MX_DeQuantizeBlockOp : MX_Op<"dequantize_block", [Pure]> {
         $input attr-dict `:` type($input) `->` type($result)
     }];
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 def MX_BlockMatmulOp : MX_Op<"block_matmul", [Pure]> {

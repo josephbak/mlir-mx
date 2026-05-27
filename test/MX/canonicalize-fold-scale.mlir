@@ -44,3 +44,15 @@ func.func @fold_three_levels(
   %s3 = mx.fold_scale %s2, %a3 : !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>, f32 -> !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>
   return %s3 : !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>
 }
+
+// CHECK-LABEL: func.func @fold_identity
+// CHECK-NOT: mx.fold_scale
+// CHECK: return %arg0
+
+func.func @fold_identity(
+    %t: !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>)
+    -> !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU> {
+  %one = arith.constant 1.0 : f32
+  %result = mx.fold_scale %t, %one : !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>, f32 -> !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>
+  return %result : !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>
+}
