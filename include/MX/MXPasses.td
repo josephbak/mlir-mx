@@ -11,20 +11,13 @@
 
 include "mlir/Pass/PassBase.td"
 
-def MXSwitchBarFoo: Pass<"mx-switch-bar-foo", "::mlir::ModuleOp"> {
-  let summary = "Switches the name of a FuncOp named `bar` to `foo` and folds.";
-  let description = [{
-    Switches the name of a FuncOp named `bar` to `foo` and folds.
-    ```
-    func.func @bar() {
-      return
-    }
-    // Gets transformed to:
-    func.func @foo() {
-      return
-    }
-    ```
-  }];
+def ConvertMXToLinalg : Pass<"mx-to-linalg", "::mlir::ModuleOp"> {
+  let summary = "Lower MX ops to linalg + arith on tensors";
+  let dependentDialects = [
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::tensor::TensorDialect"
+  ];
 }
 
 #endif // MX_PASS
