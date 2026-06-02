@@ -21,7 +21,6 @@
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
   mlir::mx::registerPasses();
-  // TODO: Register mx passes here.
 
   mlir::DialectRegistry registry;
   registry.insert<mlir::mx::MXDialect,

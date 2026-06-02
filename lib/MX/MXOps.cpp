@@ -148,6 +148,7 @@ void FoldScaleOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                               MLIRContext *context) {
   results.add<FoldScalePow2>(context);
   results.add<FoldScaleIdentity>(context); 
+  // results.add<FoldScalePow2, FoldScaleIdentity>(context);   // fills the bag (RewritePatternSet)
 }
 
 struct DequantizeFoldScaleFusion : public OpRewritePattern<DeQuantizeBlockOp> {
@@ -165,8 +166,7 @@ struct DequantizeFoldScaleFusion : public OpRewritePattern<DeQuantizeBlockOp> {
         op.getType(), foldOp.getInput());
 
     // Splat alpha to match tensor shape
-    Value alphaSplat = tensor::SplatOp::create(rewriter, op.getLoc(),
-        foldOp.getAlpha(), op.getType());
+    Value alphaSplat = tensor::SplatOp::create(rewriter, op.getLoc(), foldOp.getAlpha(), op.getType());
 
     // Element-wise multiply in f32
     Value result = arith::MulFOp::create(rewriter, op.getLoc(),
