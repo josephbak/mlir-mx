@@ -33,13 +33,13 @@ namespace {
       ConversionPatternRewriter &rewriter) const override {
     // ... build linalg.generic, replace op ...
 
-    llvm::errs() << "Pattern fired. Adaptor operands:\n";
-    for (ValueRange vr : adaptor.getOperands()) {
-      llvm::errs() << "  operand group:\n";
-      for (Value v : vr) {
-        llvm::errs() << "    " << v << "  (type: " << v.getType() << ")\n";
-      }
-    }
+    // llvm::errs() << "Pattern fired. Adaptor operands:\n";
+    // for (ValueRange vr : adaptor.getOperands()) {
+    //   llvm::errs() << "  operand group:\n";
+    //   for (Value v : vr) {
+    //     llvm::errs() << "    " << v << "  (type: " << v.getType() << ")\n";
+    //   }
+    // }
 
         // auto convertedInputs = adaptor.getOperands();  // ArrayRef<ValueRange>
         // ValueRange inputPair = convertedInputs[0];     // ValueRange for the $input operand
@@ -120,8 +120,10 @@ struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLin
                           func::FuncDialect>();
 
     TypeConverter typeConverter;
+    typeConverter.addConversion([](Type t) -> Type { return t; });
+
     typeConverter.addConversion(
-    [](mx::MxTensorType mxType, SmallVectorImpl<Type> &results) -> LogicalResult {
+    [](mx::MxTensorType mxType, SmallVectorImpl<Type> &results) -> std::optional<LogicalResult> {
       // mantissa tensor
       results.push_back(
           RankedTensorType::get(mxType.getShape(), mxType.getElementType()));
@@ -134,8 +136,6 @@ struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLin
 
       return success();
     });
-
-    typeConverter.addConversion([](Type t) -> Type { return t; });
 
     RewritePatternSet patterns(ctx);
     patterns.add<DequantizeBlockLowering>(typeConverter, ctx);
