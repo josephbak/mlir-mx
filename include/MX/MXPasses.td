@@ -16,7 +16,8 @@ def ConvertMXToLinalg : Pass<"mx-to-linalg", "::mlir::ModuleOp"> {
   let dependentDialects = [
     "::mlir::linalg::LinalgDialect",
     "::mlir::arith::ArithDialect",
-    "::mlir::tensor::TensorDialect"
+    "::mlir::tensor::TensorDialect",
+    "::mlir::math::MathDialect"
   ];
 }
 

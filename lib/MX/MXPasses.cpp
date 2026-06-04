@@ -10,12 +10,15 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+
+#include "mlir/Dialect/Math/IR/Math.h"
 
 
 namespace mlir::mx {
@@ -31,27 +34,6 @@ namespace {
       DeQuantizeBlockOp op,
       OneToNOpAdaptor adaptor, // was OpAdaptor
       ConversionPatternRewriter &rewriter) const override {
-    // ... build linalg.generic, replace op ...
-
-    // llvm::errs() << "Pattern fired. Adaptor operands:\n";
-    // for (ValueRange vr : adaptor.getOperands()) {
-    //   llvm::errs() << "  operand group:\n";
-    //   for (Value v : vr) {
-    //     llvm::errs() << "    " << v << "  (type: " << v.getType() << ")\n";
-    //   }
-    // }
-
-        // auto convertedInputs = adaptor.getOperands();  // ArrayRef<ValueRange>
-        // ValueRange inputPair = convertedInputs[0];     // ValueRange for the $input operand
-        // Value mantissa = inputPair[0];
-        // Value scale    = inputPair[1];
-
-        // Value mantissa = adaptor.getOperands()[0][0];
-        // Value scale    = adaptor.getOperands()[0][1];
-
-        // ValueRange inputPair = adaptor.getInput();  // ValueRange of {mantissa, scale}
-        // Value mantissa = inputPair[0];
-        // Value scale    = inputPair[1];
 
         ValueRange mantissaScale = adaptor.getInput();     // now correctly ValueRange
         Value mantissa = mantissaScale[0];
@@ -93,6 +75,7 @@ namespace {
             // args[0] = mantissa element (f8E4M3FN)
             // args[1] = scale element    (f8E8M0FNU)
             // args[2] = out element      (f32)  ← unused: pure elementwise
+
             Value mF32 = arith::ExtFOp::create(
                 builder, loc, builder.getF32Type(), args[0]);
             Value sF32 = arith::ExtFOp::create(
@@ -103,10 +86,177 @@ namespace {
 
       rewriter.replaceOp(op, genericOp.getResult(0));
 
-
     return success();
     }
   };
+
+  struct QuantizeBlockLowering : public OpConversionPattern<QuantizeBlockOp> {
+  using OpConversionPattern<QuantizeBlockOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      QuantizeBlockOp op,
+      OneToNOpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+
+      // step 1 — output setup for Generic 1
+      auto inputType = cast<RankedTensorType>(op.getInput().getType());
+      ArrayRef<int64_t> inputShape = inputType.getShape();
+      int64_t M = inputShape[0];
+      int64_t N = inputShape[1];
+
+      auto resultMxType = cast<MxTensorType>(op.getResult().getType());
+      int64_t blockSize = resultMxType.getBlockSize();
+      int64_t numBlocks = N / blockSize;
+
+      Value input = op.getInput();
+      Location loc = op.getLoc();
+
+      // max-abs accumulator: tensor<M x N/B x f32>
+      Value maxEmpty = tensor::EmptyOp::create(
+          rewriter, loc,
+          SmallVector<int64_t>{M, numBlocks},
+          rewriter.getF32Type());
+
+      Value zero = arith::ConstantOp::create(rewriter, loc, rewriter.getF32FloatAttr(0.0)); // 0.0 constant
+      Value maxInit = linalg::FillOp::create(
+          rewriter, loc,
+          /*inputs=*/ValueRange{zero},
+          /*outputs=*/ValueRange{maxEmpty}).getResult(0);
+
+
+      // step 2 — Generic 1: indexing maps + iterator types
+
+      // reshape input: tensor<MxNxf32> -> tensor<M x numBlocks x blockSize x f32>
+      SmallVector<int64_t> expandedShape{M, numBlocks, blockSize};
+      auto expandedType = RankedTensorType::get(expandedShape, rewriter.getF32Type());
+
+      SmallVector<ReassociationIndices> reassoc = {{0}, {1, 2}};
+
+      Value input3D = tensor::ExpandShapeOp::create(
+          rewriter, loc, expandedType, input, reassoc);
+
+
+      MLIRContext *ctx = op.getContext();
+      AffineExpr ii, bb, kk;
+      bindDims(ctx, ii, bb, kk);
+
+
+      auto inputMap = AffineMap::get(/*dims=*/3, /*syms=*/0,
+                               {ii, bb, kk}, ctx);   // was {ii, bb*blockSize + kk}
+      auto maxMap   = AffineMap::get(/*dims=*/3, /*syms=*/0,
+                                {ii, bb}, ctx);        // unchanged
+
+      SmallVector<AffineMap, 2> g1IndexingMaps{inputMap, maxMap};
+      SmallVector<utils::IteratorType, 3> g1IteratorTypes{
+          utils::IteratorType::parallel,
+          utils::IteratorType::parallel,
+          utils::IteratorType::reduction
+        };
+
+      // step 3 — build Generic 1
+      auto maxOp = linalg::GenericOp::create(rewriter, loc,
+          /*resultTensorTypes=*/TypeRange{maxInit.getType()},
+          /*inputs=*/ValueRange{input3D},
+          /*outputs=*/ValueRange{maxInit},
+          g1IndexingMaps,
+          g1IteratorTypes,
+          [&](OpBuilder &builder, Location loc, ValueRange args) {
+            // args[0] = current input element (f32)
+            // args[1] = current accumulator value (f32)
+            Value absX = math::AbsFOp::create(builder, loc, args[0]);
+            Value newMax = arith::MaximumFOp::create(builder, loc, absX, args[1]);
+            linalg::YieldOp::create(builder, loc, newMax);
+          });
+
+      Value perBlockMax = maxOp.getResult(0);
+
+      // step 4 — post-processing generic
+      // 4a: empty scale tensor<M x N/B x f32>
+      Value scaleEmpty = tensor::EmptyOp::create(
+          rewriter, loc,
+          SmallVector<int64_t>{M, numBlocks},
+          resultMxType.getScaleType());
+
+      // 4b: indexing maps + iterator types for this generic
+      AffineExpr pi, pb;
+      bindDims (ctx, pi, pb);
+
+      auto scaleInMap = AffineMap::get(/*dims=*/2, /*syms=*/0, {pi, pb}, ctx);
+      auto scaleOutMap    = AffineMap::get(/*dims=*/2, /*syms=*/0, {pi, pb}, ctx);
+
+      SmallVector<AffineMap, 2> ppIndexingMaps{scaleInMap, scaleOutMap};
+      SmallVector<utils::IteratorType, 2> ppIteratorTypes{
+          utils::IteratorType::parallel,
+          utils::IteratorType::parallel};
+
+      // 4c: build the post-processing generic itself
+      auto scaleOp = linalg::GenericOp::create(
+        rewriter, loc,
+        /*resultTensorTypes=*/TypeRange{scaleEmpty.getType()},
+        /*inputs=*/ValueRange{perBlockMax},
+        /*outputs=*/ValueRange{scaleEmpty},
+        ppIndexingMaps,
+        ppIteratorTypes,
+        [&](OpBuilder &builder, Location loc, ValueRange args) {
+          // args[0] = per-block max-abs (f32)
+          // args[1] = output slot (f8E8M0FNU) — unused, elementwise
+          //
+          // TODO: compute scale = 2^(floor(log2(args[0])) - 8), truncate to f8E8M0FNU
+          // then linalg.yield it
+          Value logVal = math::Log2Op::create(builder,loc, args[0]);
+          Value floorVal = math::FloorOp::create(builder, loc, logVal);
+          Value eMax = arith::ConstantOp::create(builder, loc, builder.getF32FloatAttr(8.0));
+          Value expVal = arith::SubFOp::create(builder, loc, floorVal, eMax);
+          Value scaleF32 = math::Exp2Op::create(builder, loc, expVal);
+          Value scaleQ  = arith::TruncFOp::create(builder, loc, resultMxType.getScaleType() , scaleF32);
+          linalg::YieldOp::create(builder, loc, scaleQ);
+        });
+
+      Value scaleTensor = scaleOp.getResult(0);
+
+    // step 5 — output setup for Generic 2
+    Value mantissaEmpty = tensor::EmptyOp::create(
+        rewriter, loc,
+        SmallVector<int64_t>{M, N},
+        resultMxType.getElementType());
+
+    // step 6 — indexing maps + iterator types for Generic 2
+      AffineExpr mi, mj;
+      bindDims (ctx, mi, mj);
+
+      auto mantInMap = AffineMap::get(/*dims=*/2, /*syms=*/0, {mi, mj}, ctx);
+      auto mantScaleMap = AffineMap::get(/*dims=*/2, /*syms=*/0, {mi, mj.floorDiv(blockSize)}, ctx);
+      auto mantOutMap = AffineMap::get(/*dims=*/2, /*syms=*/0, {mi, mj}, ctx);
+
+      SmallVector<AffineMap, 3> g2IndexingMaps{mantInMap, mantScaleMap, mantOutMap};
+      SmallVector<utils::IteratorType, 2> g2IteratorTypes{
+          utils::IteratorType::parallel,
+          utils::IteratorType::parallel};
+
+    // step 7 — build Generic 2
+      auto mantissaOp = linalg::GenericOp::create(
+        rewriter, loc,
+        /*resultTensorTypes=*/TypeRange{mantissaEmpty.getType()},
+        /*inputs=*/ValueRange{input, scaleTensor},
+        /*outputs=*/ValueRange{mantissaEmpty},
+        g2IndexingMaps,
+        g2IteratorTypes,
+        [&](OpBuilder &builder, Location loc, ValueRange args) {
+          Value scaleF32 = arith::ExtFOp::create(builder, loc, builder.getF32Type(), args[1]); // extf the scale ele. (f8E8M0FNU -> f32)
+          Value quotient = arith::DivFOp::create(builder, loc, args[0], scaleF32);
+          Value mantQ  = arith::TruncFOp::create(builder, loc, args.back().getType() , quotient);
+          linalg::YieldOp::create(builder, loc, mantQ);
+        });
+
+      Value mantTensor = mantissaOp.getResult(0);
+
+    // step 8 — replaceOp with (mantissa, scale)
+    // rewriter.replaceOp(op, ValueRange{mantTensor, scaleTensor});
+    rewriter.replaceOpWithMultiple(op, {{mantTensor, scaleTensor}});
+
+    return success();
+  }
+};
 
 struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLinalgPass> {
   void runOnOperation() override {
@@ -117,18 +267,19 @@ struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLin
     target.addLegalDialect<linalg::LinalgDialect,
                           arith::ArithDialect,
                           tensor::TensorDialect,
-                          func::FuncDialect>();
+                          func::FuncDialect,
+                          math::MathDialect>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type t) -> Type { return t; });
 
     typeConverter.addConversion(
     [](mx::MxTensorType mxType, SmallVectorImpl<Type> &results) -> std::optional<LogicalResult> {
-      // mantissa tensor
+      // mantissa tensor <- pushed first
       results.push_back(
           RankedTensorType::get(mxType.getShape(), mxType.getElementType()));
 
-      // scale tensor: same shape but last dim / block_size
+      // scale tensor: same shape but last dim / block_size <- pushed second
       SmallVector<int64_t> scaleShape(mxType.getShape());
       scaleShape.back() /= mxType.getBlockSize();
       results.push_back(
@@ -139,6 +290,7 @@ struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLin
 
     RewritePatternSet patterns(ctx);
     patterns.add<DequantizeBlockLowering>(typeConverter, ctx);
+    patterns.add<QuantizeBlockLowering>(typeConverter, ctx);
 
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns, typeConverter);
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
