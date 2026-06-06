@@ -123,7 +123,6 @@ namespace {
           /*inputs=*/ValueRange{zero},
           /*outputs=*/ValueRange{maxEmpty}).getResult(0);
 
-
       // step 2 — Generic 1: indexing maps + iterator types
 
       // reshape input: tensor<MxNxf32> -> tensor<M x numBlocks x blockSize x f32>
@@ -258,6 +257,83 @@ namespace {
   }
 };
 
+struct BlockMatmulLowering : public OpConversionPattern<BlockMatmulOp> {
+  using OpConversionPattern<BlockMatmulOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      BlockMatmulOp op,
+      OneToNOpAdaptor adaptor,                 // lhs is split → ValueRange
+      ConversionPatternRewriter &rewriter) const override {
+
+    // --- operands ---
+    // lhs split via adaptor → {aMant, aScale}; rhs/acc passthrough (plain tensors)
+    Value aMant  = adaptor.getLhs()[0];
+    Value aScale = adaptor.getLhs()[1];
+    Value b      = adaptor.getRhs()[0];
+    Value acc    = adaptor.getAcc()[0];      // ← this is also outs (DPS, no tensor.empty)
+
+    Location loc = op.getLoc();
+
+    // --- block size ---
+    // read from the ORIGINAL typed operand, not adaptor:
+    // cast<MxTensorType>(op.getLhs().getType()).getBlockSize()
+    int64_t blockSize = cast<MxTensorType>(op.getLhs().getType()).getBlockSize();
+
+    // --- indexing maps + iterator types ---
+    // bindDims(ctx, m, n, k); dims=3
+    // aMantMap (m,k), aScaleMap (m, k floordiv B), bMap (k,n), accMap (m,n)
+    // order = ins++outs = {aMant, aScale, b, acc}
+    // iterators = {parallel, parallel, reduction}
+
+    MLIRContext *ctx = op.getContext();
+    AffineExpr m, n, k;
+    bindDims(ctx, m, n, k);
+
+    auto aMantMap  = AffineMap::get(/*dims=*/3, /*syms=*/0, {m, k}, ctx);
+    auto aScaleMap = AffineMap::get(/*dims=*/3, /*syms=*/0, {m, k.floorDiv(blockSize)}, ctx);
+    auto bMap      = AffineMap::get(/*dims=*/3, /*syms=*/0, {k, n}, ctx);
+    auto accMap    = AffineMap::get(/*dims=*/3, /*syms=*/0, {m, n}, ctx);
+
+    SmallVector<AffineMap, 4> indexingMaps{aMantMap, aScaleMap, bMap, accMap};
+    SmallVector<utils::IteratorType, 3> iteratorTypes{
+        utils::IteratorType::parallel,
+        utils::IteratorType::parallel,
+        utils::IteratorType::reduction};
+
+    // --- build linalg.generic ---
+    // resultTensorTypes = { acc.getType() }   ← result tensor type = acc's type
+    // inputs  = { aMant, aScale, b }
+    // outputs = { acc }
+    // payload lambda (args: aMant, aScale, b, acc):
+    //   extf aMant→f32; extf aScale→f32; mulf → A_real
+    //   mulf A_real, b → prod
+    //   addf acc, prod → newAcc
+    //   yield newAcc
+
+    auto matmulOp = linalg::GenericOp::create(
+    rewriter, loc,
+    /*resultTensorTypes=*/TypeRange{acc.getType()},
+    /*inputs=*/ValueRange{aMant, aScale, b},
+    /*outputs=*/ValueRange{acc},
+    indexingMaps,
+    iteratorTypes,
+    [&](OpBuilder &builder, Location loc, ValueRange args) {
+      Value mF32 = arith::ExtFOp::create(builder, loc, builder.getF32Type(), args[0]);
+      Value sF32 = arith::ExtFOp::create(builder, loc, builder.getF32Type(), args[1]);
+      Value mxProd = arith::MulFOp::create(builder, loc, mF32, sF32);
+      Value prod = arith::MulFOp::create(builder, loc, mxProd, args[2]);
+      Value add = arith::AddFOp::create(builder, loc, args[3], prod);
+      linalg::YieldOp::create(builder, loc, add);
+    });
+
+    // --- replace ---
+    rewriter.replaceOp(op, matmulOp.getResult(0));
+
+    return success();
+  }
+};
+
+
 struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLinalgPass> {
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
@@ -271,8 +347,11 @@ struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLin
                           math::MathDialect>();
 
     TypeConverter typeConverter;
+
+    // passthrough — leave any type unchanged
     typeConverter.addConversion([](Type t) -> Type { return t; });
 
+    // the 1:N MX split
     typeConverter.addConversion(
     [](mx::MxTensorType mxType, SmallVectorImpl<Type> &results) -> std::optional<LogicalResult> {
       // mantissa tensor <- pushed first
@@ -291,6 +370,7 @@ struct ConvertMXToLinalgPass : public impl::ConvertMXToLinalgBase<ConvertMXToLin
     RewritePatternSet patterns(ctx);
     patterns.add<DequantizeBlockLowering>(typeConverter, ctx);
     patterns.add<QuantizeBlockLowering>(typeConverter, ctx);
+    patterns.add<BlockMatmulLowering>(typeConverter, ctx);
 
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns, typeConverter);
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
