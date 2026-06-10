@@ -5,6 +5,8 @@ docs/DECISIONS.md
 docs/NEW_CHAT_PROMPT.md
 docs/PROGRESS.md
 docs/external-models-concept.md
+docs/blog-2-bufferizing-block-scaled-types.md
+docs/blog-3-lowering-block-matmul.md
 .DS_Store
 **/.DS_Store
 .cache/
