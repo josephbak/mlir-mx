@@ -4,6 +4,7 @@ docs/PLANNING.md
 docs/DECISIONS.md
 docs/NEW_CHAT_PROMPT.md
 docs/PROGRESS.md
+docs/external-models-concept.md
 .DS_Store
 **/.DS_Store
 .cache/
