@@ -1,10 +1,10 @@
 # MX-Quantization Dialect
 
-An out-of-tree MLIR (Multi-Level Intermediate Representation) dialect for Microscaling (MX) and sub-INT8 (sub-8-bit integer) quantization formats. Built against current upstream LLVM/MLIR. Lowers to `linalg` + `arith` and executes via `mlir-cpu-runner` with reproducible benchmarks. It implements a full dialect and lowering stack — the design/frontend half of the compiler.
+An out-of-tree MLIR (Multi-Level Intermediate Representation) dialect for Microscaling (MX) and sub-INT8 (sub-8-bit integer) quantization formats. Built against current upstream LLVM/MLIR. The dialect lowers to `linalg` + `arith` and bufferizes to memrefs; Transform-dialect scheduling, execution via `mlir-runner`, and reproducible benchmarks are in progress. It implements a full dialect and lowering stack — the design/frontend half of the compiler.
 
 ## What's covered
 
-End to end, the project includes:
+The completed project covers, end to end:
 
 - Modern C++ + TableGen (ODS — Operation Definition Specification)
 - Dialect design: op set, parameterized types, verification, op interfaces
@@ -50,22 +50,23 @@ This surface is thinly covered upstream and broadly relevant across the industry
 
 A dialect is a set of co-designed decisions, not just a list of ops — abstraction level, op-set granularity, type parameterization, bufferization, lowering target, canonicalization, and more. Each was a deliberate trade-off; the full reasoning across every axis is in `docs/PLANNING.md`.
 
-## Transform dialect scheduling (planned, Week 5)
+## Transform dialect scheduling
 
-The dialect lowers to `linalg`, then a Transform schedule tiles and vectorizes the linalg form. The target schedule:
+The dialect lowers to `linalg`, then a Transform schedule tiles and vectorizes the linalg form. Illustrative target schedule (exact op syntax and handle arity verified during implementation against the local LLVM checkout):
 
 ```mlir
 module attributes {transform.with_named_sequence} {
   transform.named_sequence @__transform_main(%root: !transform.any_op) {
     %matmul = transform.structured.match ops{["linalg.generic"]} in %root
-    %tiled, %loops = transform.structured.tile_using_for %matmul [32, 32, 32]
+    // tile N and K by 32; leave M whole (M = block size, so a 32-tile is a trip-1 loop)
+    %tiled, %loops:2 = transform.structured.tile_using_for %matmul tile_sizes [0, 32, 32]
     transform.structured.vectorize %tiled vector_sizes [16, 16]
     transform.yield
   }
 }
 ```
 
-The schedule is data, not compiled code, which makes it autotunable — the same Transform-dialect approach IREE codegen uses. The K (reduction) tile is block-aligned (= block size, 32) so the block-scale index becomes loop-invariant and vectorizes to a load + broadcast; see `docs/PLANNING.md` for the rationale.
+The schedule is data, not compiled code, which makes it autotunable — the same Transform-dialect approach IREE codegen uses. The K (reduction) tile is block-aligned to the block size (32) for vectorization reasons detailed in `docs/PLANNING.md`.
 
 ## Build and run
 
@@ -80,14 +81,11 @@ ninja
 ./bin/mx-opt --help
 ```
 
-## Timeline
+## Status and roadmap
 
-- **Week 1** — Project skeleton; `mx-opt` round-trips a stub op
-- **Week 2** — All 4 ops + parameterized type; parse, print, verify
-- **Week 3** — `mx.fold_scale` plus two more canonicalizations
-- **Week 4** — Dialect conversion to `linalg` + bufferization handling
-- **Week 5** — Execute via `mlir-cpu-runner`; benchmark; add Transform schedule
-- **Week 6** — Writeup; blog post series on `josephbak.github.io`
+Done: the dialect, its four ops and parameterized type, three canonicalizations, conversion to `linalg.generic` on tensors, and bufferization to memrefs via one-shot-bufferize — all tested.
+
+In progress: a Transform-dialect schedule that tiles and vectorizes the lowered `linalg` form, end-to-end execution via `mlir-runner`, and a memory-traffic benchmark culminating in the roofline plot. A writeup and blog-post series follow.
 
 ## Deliverables
 
