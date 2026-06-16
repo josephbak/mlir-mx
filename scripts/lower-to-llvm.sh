@@ -13,7 +13,9 @@ set -euo pipefail
 
 INPUT="${1:?usage: lower-to-llvm.sh <input.mlir> [--run]}"
 MODE="${2:-}"
-RUNNER_LIB="$HOME/dev/llvm-build/lib/libmlir_runner_utils.dylib"
+LLVM_BUILD="${LLVM_BUILD:-$HOME/dev/llvm-build}"
+RUNNER_LIB="$LLVM_BUILD/lib/libmlir_runner_utils.dylib"
+
 
 # --- Pass ordering rationale (do not reorder casually) ---
 #  mx-to-linalg                         : your dialect -> linalg on tensors (1:N split)
