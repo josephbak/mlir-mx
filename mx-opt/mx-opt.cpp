@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 
 #include "MX/MXDialect.h"
 #include "MX/MXPasses.h"
@@ -32,6 +33,7 @@ int main(int argc, char **argv) {
   registry.insert<mlir::mx::MXDialect,
                   mlir::arith::ArithDialect,
                   mlir::func::FuncDialect,
+                  mlir::bufferization::BufferizationDialect,
                   mlir::tensor::TensorDialect>();
 
   mlir::arith::registerBufferizableOpInterfaceExternalModels(registry);
