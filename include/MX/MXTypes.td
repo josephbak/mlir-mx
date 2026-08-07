@@ -51,7 +51,11 @@ def MX_TensorType : MX_Type<"MxTensor", "tensor"> {
   let genVerifyDecl = 1;
 
   let extraClassDeclaration = [{
-    // Returns the number of scale blocks along the last axis.
+    // Number of scale blocks along the last axis (one shared scale per block).
+    // Ceil-div form: currently blockSize | shape[-1] is enforced by the type
+    // verifier (see MxTensorType::verify), so this equals exact division today.
+    // The ceiling is kept forward-looking: if v1.5 relaxes divisibility to allow
+    // a partial trailing block, this already returns the correct count.
     int64_t getNumScaleBlocks() const {
       auto s = getShape();
       return (s.back() + getBlockSize() - 1) / getBlockSize();
