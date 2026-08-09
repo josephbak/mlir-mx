@@ -1,5 +1,6 @@
 build/
 results/
+docs/
 docs/EXPLAINER.md
 docs/PLANNING.md
 docs/DECISIONS.md
