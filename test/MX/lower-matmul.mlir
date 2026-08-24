@@ -25,7 +25,7 @@
 // CHECK: linalg.yield
 
 func.func @block_matmul(
-    %lhs: !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>,        // ← fill in your real MX type
+    %lhs: !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>,
     %rhs: tensor<64x64xf32>,
     %acc: tensor<32x64xf32>) -> tensor<32x64xf32> {
   %0 = mx.block_matmul %lhs, %rhs, %acc : !mx.tensor<32x64xf8E4M3FN, block_size=32, scale_type=f8E8M0FNU>, tensor<64x64xf32>, tensor<32x64xf32> -> tensor<32x64xf32>
