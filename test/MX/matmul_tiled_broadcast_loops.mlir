@@ -1,6 +1,8 @@
-// HAND-EDITED, not pipeline output. Single tile (loops stripped), scale rewritten
-// to tensor<32> + map (d0) to demonstrate the broadcast form structured.vectorize
-// produces. The automatic floordiv->broadcast rewrite is v1.5 (see DECISIONS 2026-06-15).
+// HAND-EDITED, not pipeline output. The full two-loop tiled nest from
+// schedule.mlir, with one edit: the scale slice rank-reduced to tensor<32> and
+// its indexing map rewritten from (d0, d2 floordiv 32) to (d0), to demonstrate
+// the broadcast form structured.vectorize produces. The automatic
+// floordiv->broadcast rewrite is v1.5 (see DECISIONS 2026-06-15).
 #map = affine_map<(d0) -> (d0 floordiv 32)>
 #map1 = affine_map<(d0, d1, d2) -> (d0, d2)>
 #map2 = affine_map<(d0, d1, d2) -> (d0)>
