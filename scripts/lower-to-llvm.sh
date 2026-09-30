@@ -35,9 +35,13 @@ RUNNER_LIB="$LLVM_BUILD/lib/libmlir_runner_utils.dylib"
 #  convert-func-to-llvm                 : func -> llvm
 #  reconcile-unrealized-casts           : erase leftover cast glue (LAST)
 #
-# KNOWN LIMITATION (v1.5): arith.extf/truncf on f8E4M3FN do NOT lower on CPU.
-#   They survive to LLVM dialect; mlir-runner's LLVM backend is expected to handle
-#   them but this is unverified. The E8M0 scale path and all f32 paths lower cleanly.
+# KNOWN LIMITATION on this build (llvm-project @ 6f92180): arith.extf/truncf on
+#   f8E4M3FN have no expansion on the CPU path. The type converts (f8E4M3FN -> i8)
+#   but the op does not: it reaches LLVM dialect still spelled arith.extf, fed by a
+#   live unrealized_conversion_cast from i8. See test/MX/probe-f8-extf.mlir.
+#   The E8M0 scale path lowers via --arith-expand="include-f8e8m0=true"; all f32
+#   paths lower cleanly. Closed upstream in c3c6e286e7eb9 (2026-09-01), which adds
+#   --arith-expand="include-f8e4m3fn=true"; absent from this build.
 
 PIPELINE=(
   --mx-to-linalg
