@@ -43,14 +43,13 @@ def MX_QuantizeBlockOp : MX_Op<"quantize_block", [Pure]> {
     let summary = "Quantize an FP32 tensor into block-scaled MX form";
     let description = [{ ... longer prose, optional ... }];
 
-
     let arguments = (ins StaticShapeTensorOf<[F32]>:$input);
     let results   = (outs MX_TensorType:$result);
 
-  let assemblyFormat = [{
+    let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($result)
-  }];
-  let hasVerifier = 1;
+    }];
+    let hasVerifier = 1;
 }
 
 def MX_DeQuantizeBlockOp : MX_Op<"dequantize_block", [Pure]> {
@@ -63,8 +62,8 @@ def MX_DeQuantizeBlockOp : MX_Op<"dequantize_block", [Pure]> {
     let assemblyFormat = [{
         $input attr-dict `:` type($input) `->` type($result)
     }];
-  let hasVerifier = 1;
-  let hasCanonicalizer = 1;
+    let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def MX_BlockMatmulOp : MX_Op<"block_matmul", [Pure]> {
@@ -78,10 +77,10 @@ def MX_BlockMatmulOp : MX_Op<"block_matmul", [Pure]> {
     );
     let results = (outs StaticShapeTensorOf<[F32]>:$result);
 
-  let assemblyFormat = [{
+    let assemblyFormat = [{
     $lhs `,` $rhs `,` $acc attr-dict `:` type($lhs) `,` type($rhs) `,` type($acc) `->` type($result)
-  }];
-  let hasVerifier = 1;
+    }];
+    let hasVerifier = 1;
 }
 
 def MX_FoldScaleOp : MX_Op<"fold_scale", [Pure]> {

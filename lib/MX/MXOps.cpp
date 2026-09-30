@@ -60,13 +60,13 @@ LogicalResult BlockMatmulOp::verify() {
     // 2. Matmul dimension compatibility
     if (K != K2)
         return emitOpError("reduction dimension mismatch: lhs has K=")
-             << K << " but rhs has K=" << K2;
+              << K << " but rhs has K=" << K2;
     if (M != M2)
         return emitOpError("M dimension mismatch: lhs has M=")
-             << M << " but acc has M=" << M2;
+              << M << " but acc has M=" << M2;
     if (N != N2)
         return emitOpError("N dimension mismatch: rhs has N=")
-             << N << " but acc has N=" << N2;
+              << N << " but acc has N=" << N2;
 
     // 3. Result shape == acc shape
     if (accType.getShape() != resultType.getShape())

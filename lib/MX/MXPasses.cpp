@@ -26,7 +26,6 @@ namespace mlir::mx {
 #include "MX/MXPasses.h.inc"
 
 namespace {
-
   struct DequantizeBlockLowering : public OpConversionPattern<DeQuantizeBlockOp> {
   using OpConversionPattern<DeQuantizeBlockOp>::OpConversionPattern;
 
